@@ -1,26 +1,83 @@
 import numpy as np
 from scipy.integrate import odeint
-from scipy.special import j0,j1 # bessel function
+from scipy.special import j0, j1, y1 # bessel function
 import matplotlib.pyplot as plt
 import sys
 
+'''
+
+Este archivo se compromete a resolver la ecuacion de onda:
+	h'' + 2 * a'/a * h + k^2 * h = 0 , valido para ambos planos de polarizacion.
+
+'''
+
 def fbessel(H, eta, k):
-    
+    '''
+	Cambio de variable. Paso de ecuacion de segundo orden a primer orden para usar integrador odeint().
+
+	H = [1.,0.], condiciones iniciales
+	eta = variable de integracion (tiempo conforme)
+    '''
     h = H[0]
     g = H[1]
-  
+  	
+  	# llamo h' = g
+  	# despejo h'' de la ec de onda.
     dhdEta = g
     dgdEta = 1.0 / eta**2 * (-2.* eta * g - k**2 * eta**2  * h)
     return [dhdEta, dgdEta]
 
 
-def transferfunctionRad(x, k):
+'''
+Existen tres regimenes de la fucion de transferencia: 
+	i  )	(tau < tau_dec, k > k_eq), la funcion de transferencia correspondiente a los modos que reingresan al horizonte en RD
+	ii )	(tau > tau_dec, k > k_eq), la funcion de transferencia correspondiente a los modos que reingresan al horizonte en RD 
+			que luego lo afecta en forma diferente cuando el universo pasa a estar MD
+	iii)	(tau, k < k_eq), la funcion de transferencia correspondiente a los modos que reingresan al horizonte en MD;
 
-	return j0(k*x) / j0(k*0) * ((k*x) / 3 / j1(k*x))
+	i)  --> transfRad
+	ii) --> transfRadMat
+	iii)--> transfMat
+'''
+def transfRad(x, k):
 
-def transferfunctionMat(x, k):
+	#return j0(k*x) / j0(k*0) * ((k*x) / 3 / j1(k*x))
+	return j0(k*x)
 
-	return (3*j1(k*x)/(k*x)) / (1) * ((k*x) / 3 / j1(k*x))
+def A(k, eta_eq):
+
+	aux1 = 3./(2*k*eta_eq)
+	aux2 = np.cos(2*k*eta_eq) / (2*k*eta_eq)
+	aux3 = np.sin(2*k*eta_eq) / (k*eta_eq)**2
+
+	return aux1 - aux2 + aux3
+
+def B(k, eta_eq):
+
+	aux1 = 1. / (k*eta_eq)**2 
+	aux2 = np.cos(2*k*eta_eq) / (k*eta_eq)**2
+	aux3 = np.sin(2*k*eta_eq) / (2*k*eta_eq)
+
+	return -1 + aux1 - aux2 - aux3
+
+def transfRadMat(x, k, k_eq, eta_eq):
+	'''
+	x = tiempo conforme
+	k = modo (fijo)
+	k_eq = tamanio del horizonte al momento de desacople
+	eta_eq = tiempo conforme del desacople'''
+
+	a = A(k, eta_eq)
+	b = B(k, eta_eq)
+
+	term1 = a * j1(k*x)
+	term2 = b * y1(k*x)
+
+	return eta_eq / x * (term1 * term2)
+
+def transfMat(x, k):
+
+	return (3*j1(k*x)/(k*x)) 
 #	return (3*j1(k*x)/(k*x)) / (j1(k*3e-4)/(k*x)) * ((k*x) / 3 / j1(k*x))
 
 def turnerEtAll(x,k,hubble):
@@ -29,48 +86,78 @@ def turnerEtAll(x,k,hubble):
 
 	return np.sqrt(1 + 1.34*y + 2.5*y**2)
 
+# valor aproximado del parametro de Hubble
 hubble = 0.7
 
+# k_eq. Sale de que el tamanio del horizonte al momento de desacople cumple que:
+# k_eq * eta_eq = 1, si eta_eq = 0.02 --> k_eq = 1/0.02
+eta_eq = 0.02
+k_eq = 1 / eta_eq # \sim 50
+
+# No puede integrarse a partir de cero, pues errores numericos. Ponemos un valor inicial que represente ese 'cero'
 x0 = 1e-15
-y0 = 1
+
+''' Condiciones iniciales para resolver la ecuacion
+que h/h_prim(0) = 1 es por la normalizacion'''
+y0 = 1	
 z0 = 0
 Y0 = [y0, z0]
- 
+
+# Intervalo temporal de integracion con un millon de puntos equidistantes
 xspan = np.linspace(1e-15, 1.,1e6)
 
-#Asumo eta0 = 1 (corregir luego)
+#Normalizacion del tiempo conforme. Asumo eta0 = 1 (corregir luego)
 eta0 =1.
 #eta0 = 1.96
-#k = 1000./eta0
 
-# calculo la funcion de transferencia para la radiacion y materia
+# Calculo las funciones de transferencia para los diferentes regimenes...
+
 transf = []
-x_rad = []
-x_mat = []
-for each in xspan:
-	if each < 0.02:
-		x_rad.append(each)
-	elif each >= 0.02:
-		x_mat.append(each)
 
-x_rad = np.array(x_rad)
-x_mat = np.array(x_mat)
-#print x_rad[0], x_rad[-1], x_mat[0],x_mat[-1]
-k=10.
-k2=1000.
+# ============ Modos que quiero conocer
+k1 = 10.#*eta_eq
+k2 = 100.#*eta_eq
+k3 = 500.#*eta_eq
+k_arr = [k1, k2, k3]
+# ==============
+
+for i, k in enumerate(k_arr):
+	aux1 = [] 
+	if k > k_eq*eta_eq:
+		for each in xspan:
+			if each < eta_eq:
+				aux1.append(transfRad(each, k))
+			elif each > eta_eq:
+				aux1.append(transfRadMat(each, k, k_eq, eta_eq))
+
+	if k < k_eq * eta_eq:
+		for each in xspan:
+			aux1.append(transfMat(each, k))
+
+	transf.append(np.array(aux1))
+
+
+###for each in xspan:
+###	if each < eta_eq:
+###		x_rad.append(each)
+###	elif each >= eta_eq:
+###		x_mat.append(each)
+###
+###x_rad = np.array(x_rad)
+###x_mat = np.array(x_mat)
+
+
 # Resuelvo numericamente la ecuacion diferencial
-sol = odeint(fbessel, Y0, xspan, args=(k,))
-#Y0=[sol[-1][0],z0]
+
+sol = odeint(fbessel, Y0, xspan, args=(k1,))
 sol2 = odeint(fbessel, Y0, xspan, args=(k2,))
-#sol_m = odeint(fbessel, Y0, xspan, args=(k,))
-#sol2_m = odeint(fbessel, Y0, xspan, args=(k2,))
 
 
-transf_rad = transferfunctionRad(xspan, k)
-transf_mat = transferfunctionMat(xspan, k)
+###transf_rad = transfRad(xspan, k)
+###transf_mat = transfMat(xspan, k)
 
 # calculo la funcion ajustada por Turner, White and Lindsey (1993)
-mod = turnerEtAll(xspan,k,hubble)
+###mod = turnerEtAll(xspan,k,hubble)
 
 plt.clf()
 plt.figure(figsize=(10,8))
@@ -78,12 +165,12 @@ plt.xscale('log')
 plt.xlim(0.0001,1.)
 plt.ylim(-0.2,1.2)
 plt.xlabel('$\eta$')
-plt.ylabel('h')
-plt.plot(xspan, sol[:,0], '-', label='numerical sol k={}'.format(k), color = 'b')
+plt.ylabel('$h/h^{prim}$')
+plt.plot(xspan, sol[:,0], '-', label='numerical sol k={}'.format(k1), color = 'b')
 plt.plot(xspan, sol2[:,0], '-', label='numerical sol k={}'.format(k2), color = 'k')
-#plt.plot(x_rad, transf_rad, '-', label = 'Transfer function (RD)', color = 'g')
-#plt.plot(x_mat, transf_mat, '-', label = 'Transfer function (MD)', color = 'k')
-plt.axvline(x = 0.02, label = '$\eta_{eq}$=0.02 ', color = 'r', ls = '--')
+plt.plot(xspan, transf[0], '--', label='anal sol k={}'.format(k1), color = 'b')
+plt.plot(xspan, transf[1], '--', label='anal sol k={}'.format(k2), color = 'k')
+plt.axvline(x = eta_eq, label = '$\eta_{eq}$=0.02 ', color = 'r', ls = '--')
 #plt.plot(xspan, mod, '-', label = 'Turner et all', color = 'y')
 
 plt.legend(loc = 'upper right', fontsize='medium')
