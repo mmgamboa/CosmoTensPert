@@ -103,76 +103,77 @@ y0 = 1
 z0 = 0
 Y0 = [y0, z0]
 
-# Intervalo temporal de integracion con un millon de puntos equidistantes
-xspan = np.linspace(1e-15, 1.,1e6)
-
+# Intervalo temporal de integracion con un millon de puntos equidistantes. Normalizado a eta0 (pues llega hasta 1)
+xspan = np.linspace(1e-15, 1.,1e5)
+xspan_lin = np.linspace(0,20,1e5)
 #Normalizacion del tiempo conforme. Asumo eta0 = 1 (corregir luego)
 eta0 =1.
-#eta0 = 1.96
 
 # Calculo las funciones de transferencia para los diferentes regimenes...
 
-transf = []
+transfer = []
 
 # ============ Modos que quiero conocer
-k1 = 10.#*eta_eq
-k2 = 100.#*eta_eq
-k3 = 500.#*eta_eq
-k_arr = [k1, k2, k3]
+k1 = 20.#*eta_eq
+#k2 = 200.#*eta_eq
+k3 = 1000.#*eta_eq
+k_arr = [k1, k3]
 # ==============
 
-for i, k in enumerate(k_arr):
-	aux1 = [] 
-	if k > k_eq*eta_eq:
-		for each in xspan:
-			if each < eta_eq:
-				aux1.append(transfRad(each, k))
-			elif each > eta_eq:
-				aux1.append(transfRadMat(each, k, k_eq, eta_eq))
+#for eta_i in xspan:
+#	if k_arr[0]*eta_i < 1.:
+#		transfer.append(1.)
+#
+#	elif k_arr[0]*eta_i > 1.:
+#		if eta_i < eta_eq:
+#			transfer.append(transfRad(eta_i, k_arr[0]))
+#
+#		if eta_i > eta_eq:
+#			transfer.append(transfRadMat(eta_i, k_arr[0], k_eq, eta_eq))
 
-	if k < k_eq * eta_eq:
-		for each in xspan:
-			aux1.append(transfMat(each, k))
-
-	transf.append(np.array(aux1))
-
-
-###for each in xspan:
-###	if each < eta_eq:
-###		x_rad.append(each)
-###	elif each >= eta_eq:
-###		x_mat.append(each)
-###
-###x_rad = np.array(x_rad)
-###x_mat = np.array(x_mat)
+#for i, k in enumerate(k_arr):
+#	aux1 = [] 
+#	if k > k_eq*eta_eq:
+#		for each in xspan:
+#			if each < eta_eq:
+#				aux1.append(transfRad(each, k))
+#			elif each > eta_eq:
+#				aux1.append(transfRadMat(each, k, k_eq, eta_eq))
+#
+#	if k < k_eq * eta_eq:
+#		for each in xspan:
+#			aux1.append(transfMat(each, k))
+#
+#	transfer.append(np.array(aux1))
 
 
 # Resuelvo numericamente la ecuacion diferencial
 
-sol = odeint(fbessel, Y0, xspan, args=(k1,))
-sol2 = odeint(fbessel, Y0, xspan, args=(k2,))
-
-
-###transf_rad = transfRad(xspan, k)
-###transf_mat = transfMat(xspan, k)
+numerical_sol = []
+for each in k_arr:
+	numerical_sol.append(odeint(fbessel, Y0, xspan, args=(each,)))
 
 # calculo la funcion ajustada por Turner, White and Lindsey (1993)
 ###mod = turnerEtAll(xspan,k,hubble)
+print 'numerical sol shape', np.shape(numerical_sol)
+print 'transf shape', np.shape(transfer)
 
 plt.clf()
 plt.figure(figsize=(10,8))
-plt.xscale('log')
-plt.xlim(0.0001,1.)
-plt.ylim(-0.2,1.2)
-plt.xlabel('$\eta$')
+#plt.xscale('log')
+plt.xlim(0.0,20.)
+plt.ylim(-0.3,1.2)
+plt.xlabel('$k\eta$')
 plt.ylabel('$h/h^{prim}$')
-plt.plot(xspan, sol[:,0], '-', label='numerical sol k={}'.format(k1), color = 'b')
-plt.plot(xspan, sol2[:,0], '-', label='numerical sol k={}'.format(k2), color = 'k')
-plt.plot(xspan, transf[0], '--', label='anal sol k={}'.format(k1), color = 'b')
-plt.plot(xspan, transf[1], '--', label='anal sol k={}'.format(k2), color = 'k')
-plt.axvline(x = eta_eq, label = '$\eta_{eq}$=0.02 ', color = 'r', ls = '--')
-#plt.plot(xspan, mod, '-', label = 'Turner et all', color = 'y')
+color = ['b','g','r']
+line_type = [':', '--', '-']
+for i, each in enumerate(k_arr):
+	plt.plot(each*xspan, numerical_sol[i][:,0], line_type[i], label='numerical sol k={}'.format(each), color = color[i])
+	plt.axvline(1./each, ls = line_type[i], color = color[i])
+
+plt.plot(xspan, transfMat(xspan, k_arr[0]), ls = line_type[2], label='anal sol k={}'.format(k_arr[0]), color = 'b')
+plt.plot(xspan, transfRad(xspan, k_arr[1]), ls = line_type[2], label='anal sol k={}'.format(k_arr[1]), color = 'g')
 
 plt.legend(loc = 'upper right', fontsize='medium')
 plt.show()
-#plt.savefig('')
+#plt.savefig('figure7-watanabe-numerical-solutions')
