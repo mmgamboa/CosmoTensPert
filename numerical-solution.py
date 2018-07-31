@@ -11,20 +11,26 @@ Este archivo se compromete a resolver la ecuacion de onda:
 
 '''
 
-def fbessel(H, eta, k):
+def fbessel(H, eta, k, mat = False):
     '''
 	Cambio de variable. Paso de ecuacion de segundo orden a primer orden para usar integrador odeint().
 
 	H = [1.,0.], condiciones iniciales
 	eta = variable de integracion (tiempo conforme)
+
+	Por default calcula para RD (si mat = True -> calcula para MD)
     '''
     h = H[0]
     g = H[1]
-  	
+    # c is a constant : c = 1 for RD , c = 2 for MD
+    c = 1.
+    if mat:
+    	c = 2.
   	# llamo h' = g
   	# despejo h'' de la ec de onda.
     dhdEta = g
-    dgdEta = 1.0 / eta**2 * (-2.* eta * g - k**2 * eta**2  * h)
+    dgdEta = 1.0 / eta**2 * (-2.* c * eta * g - k**2 * eta**2  * h)
+
     return [dhdEta, dgdEta]
 
 
@@ -41,7 +47,6 @@ Existen tres regimenes de la fucion de transferencia:
 '''
 def transfRad(x, k):
 
-	#return j0(k*x) / j0(k*0) * ((k*x) / 3 / j1(k*x))
 	return j0(k*x)
 
 def A(k, eta_eq):
@@ -78,8 +83,7 @@ def transfRadMat(x, k, k_eq, eta_eq):
 def transfMat(x, k):
 
 	return (3*j1(k*x)/(k*x)) 
-#	return (3*j1(k*x)/(k*x)) / (j1(k*3e-4)/(k*x)) * ((k*x) / 3 / j1(k*x))
-
+	
 def turnerEtAll(x,k,hubble):
 
 	y =  k * x / hubble / 370
@@ -105,7 +109,6 @@ Y0 = [y0, z0]
 
 # Intervalo temporal de integracion con un millon de puntos equidistantes. Normalizado a eta0 (pues llega hasta 1)
 xspan = np.linspace(1e-15, 1.,1e5)
-xspan_lin = np.linspace(0,20,1e5)
 #Normalizacion del tiempo conforme. Asumo eta0 = 1 (corregir luego)
 eta0 =1.
 
@@ -113,11 +116,50 @@ eta0 =1.
 
 transfer = []
 
+#
+# ================================================= Figura 6 de Watanabe&Komatsu ===============================
+# Esta figura representa las soluciones numericas de la ecuacion de onda para las GW primordiales. 
 # ============ Modos que quiero conocer
 k1 = 20.#*eta_eq
-#k2 = 200.#*eta_eq
+k2 = 200.#*eta_eq
 k3 = 1000.#*eta_eq
-k_arr = [k1, k3]
+k_arr = [k1, k2, k3]
+# Resuelvo numericamente la ecuacion diferencial
+
+numerical_sol = []
+test = [True, False, False] # because k=20 is purely inside the horizon in MD, the other are ambiguos so we take then reenter in RD.
+for i, each in enumerate(k_arr):
+	numerical_sol.append(odeint(fbessel, Y0, xspan, args=(each,test[i])))
+
+print 'numerical sol shape', np.shape(numerical_sol)
+print 'transf shape', np.shape(transfer)
+
+plt.clf()
+plt.figure(figsize=(10,8))
+plt.xscale('log')
+plt.xlim(0.0001,1.)
+plt.ylim(-0.2,1.2)
+plt.xlabel('$\eta/\eta_{0}$')
+plt.ylabel('$h/h^{prim}$')
+color = ['b','g','r']
+line_type = [':', '--', '-']
+for i, each in enumerate(k_arr):
+	plt.plot(xspan, numerical_sol[i][:,0], line_type[i], label='numerical sol k={}'.format(each), color = color[i])
+	plt.axvline(1./each, ls = line_type[i], color = color[i])
+
+plt.legend(loc = 'upper right', fontsize='medium')
+plt.show()
+#plt.savefig('figure6-watanabe-numerical-solutions')
+
+
+#
+# ================================================= Figura 7 de Watanabe&Komatsu ===============================
+# Esta figura resulta para la comparacion entre las soluciones numericas y analiticas de las funciones de 
+# transferencia para dos modos: un modo que claramente entra durante RD (k=1000) al horizonte y otro que lo hace 
+# cuando el universo es MD (k=20)
+# ============ Modos que quiero conocer
+
+
 # ==============
 
 #for eta_i in xspan:
@@ -146,34 +188,42 @@ k_arr = [k1, k3]
 #
 #	transfer.append(np.array(aux1))
 
+# ============ Modos que quiero conocer
 
+eta = np.linspace(1e-8, 1, 1e4) #seria el eta sin normalizar a eta0
+
+k1 = 20.#*eta_eq
+k2 = 1000.#*eta_eq
+k_arr = [k1, k2]
 # Resuelvo numericamente la ecuacion diferencial
 
-numerical_sol = []
-for each in k_arr:
-	numerical_sol.append(odeint(fbessel, Y0, xspan, args=(each,)))
+numerical_sol_2 = []
+test = [True, False]
+for i, each in enumerate(k_arr):
+	numerical_sol_2.append(odeint(fbessel, Y0, eta, args=(each,test[i])))
 
-# calculo la funcion ajustada por Turner, White and Lindsey (1993)
-###mod = turnerEtAll(xspan,k,hubble)
-print 'numerical sol shape', np.shape(numerical_sol)
-print 'transf shape', np.shape(transfer)
+mat_t = transfMat(eta, k_arr[0])
+rad_t = transfRad(eta, k_arr[1])
+plot_analytic = [mat_t,rad_t]
 
 plt.clf()
 plt.figure(figsize=(10,8))
 #plt.xscale('log')
-plt.xlim(0.0,20.)
-plt.ylim(-0.3,1.2)
-plt.xlabel('$k\eta$')
+plt.xlim(0.0001,20)
+#plt.ylim(-0.2,1.2)
+plt.xlabel('$k \eta$')
 plt.ylabel('$h/h^{prim}$')
 color = ['b','g','r']
 line_type = [':', '--', '-']
+# ploting numerical solution
 for i, each in enumerate(k_arr):
-	plt.plot(each*xspan, numerical_sol[i][:,0], line_type[i], label='numerical sol k={}'.format(each), color = color[i])
-	plt.axvline(1./each, ls = line_type[i], color = color[i])
-
-plt.plot(xspan, transfMat(xspan, k_arr[0]), ls = line_type[2], label='anal sol k={}'.format(k_arr[0]), color = 'b')
-plt.plot(xspan, transfRad(xspan, k_arr[1]), ls = line_type[2], label='anal sol k={}'.format(k_arr[1]), color = 'g')
+	plt.plot(each*eta, numerical_sol_2[i][:,0]/max(numerical_sol_2[i][:,0]), line_type[1], 
+			label='numerical sol k={}'.format(each), color = color[i])
+#ploting analytical solution
+for i, each in enumerate(k_arr):
+	plt.plot(each*eta, plot_analytic[i]/max(plot_analytic[i]), ls = line_type[2], label='anal sol k={}'.format(each), color = color[i])
 
 plt.legend(loc = 'upper right', fontsize='medium')
 plt.show()
-#plt.savefig('figure7-watanabe-numerical-solutions')
+
+# ==============
